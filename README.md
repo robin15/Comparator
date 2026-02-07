@@ -18,7 +18,9 @@
 
 ```text
 .
-├── comparator.rb        # プログラム本体
+├── comparator.py        # ソースコード
+├── dist/
+│    ├── comprator.exr   # 実行形式ファイル
 ├── golden/              # 期待値（正解データ）を配置するディレクトリ
 │    ├── sample01.bin
 │    └── sample02.bin
@@ -43,12 +45,10 @@ ruby comparator.rb
 
 ### Windows用exeの作成
 
-`ocra` を使用して、Rubyがインストールされていない環境向けの実行ファイルを作成できます。
+`pyinstaller` を使用して、Pythonがインストールされていない環境向けの実行ファイルを作成できます。
 
 ```bash
-gem install ocra
-ocra comparator.rb --console --no-ruby-archive --add-all-core
-
+pyinstaller --onefile --console comparator.py
 ```
 
 ## 設計仕様
