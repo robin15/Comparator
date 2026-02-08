@@ -10,24 +10,54 @@ except ImportError:
 class BinaryComparator:
     @staticmethod
     def compare(path1, path2):
-        if os.path.getsize(path1) != os.path.getsize(path2):
-            return {"match": False, "reason": "Size differs"}
+        # 1. サイズチェック
+        size1 = os.path.getsize(path1)
+        size2 = os.path.getsize(path2)
+        if size1 != size2:
+            return {"match": False, "reason": f"Size differs (G:{size1} bytes / T:{size2} bytes)"}
 
-        sha256 = hashlib.sha256()
+        # 2. SHA256ハッシュチェック (高速な全体一致確認)
         with open(path1, "rb") as f1, open(path2, "rb") as f2:
-            while chunk := f1.read(4096):
-                sha256.update(chunk)
-            hash1 = sha256.hexdigest()
+            # ハッシュ計算用のループ
+            hash1 = BinaryComparator._calculate_sha256(f1)
+            hash2 = BinaryComparator._calculate_sha256(f2)
 
-            sha256_2 = hashlib.sha256()
-            while chunk := f2.read(4096):
-                sha256_2.update(chunk)
-            hash2 = sha256_2.hexdigest()
+            if hash1 == hash2:
+                return {"match": True, "reason": "Full match (SHA256)"}
 
-        if hash1 == hash2:
-            return {"match": True, "reason": "Full match (SHA256)"}
-        else:
-            return {"match": False, "reason": "Binary data differs"}
+            # 3. 画素値（詳細バイナリ）比較
+            # SHA256が不一致の場合、先頭から1バイトずつ比較して不一致箇所を特定する
+            f1.seek(0)
+            f2.seek(0)
+            offset = 0
+            chunk_size = 4096
+            
+            while True:
+                b1 = f1.read(chunk_size)
+                b2 = f2.read(chunk_size)
+                if not b1:
+                    break
+                
+                if b1 != b2:
+                    # チャンク内で不一致がある場合、その詳細な位置を特定
+                    for i in range(len(b1)):
+                        if b1[i] != b2[i]:
+                            addr = offset + i
+                            return {
+                                "match": False, 
+                                "reason": f"Pixel data mismatch at address: 0x{addr:X} (G:0x{b1[i]:02X} != T:0x{b2[i]:02X})"
+                            }
+                offset += len(b1)
+
+        return {"match": False, "reason": "Unknown error during comparison"}
+
+    @staticmethod
+    def _calculate_sha256(file_handle):
+        sha256 = hashlib.sha256()
+        file_handle.seek(0)
+        while chunk := file_handle.read(4096):
+            sha256.update(chunk)
+        return sha256.hexdigest()
 
 class ImageComparatorApp:
     GOLDEN_DIR = "./golden"
@@ -36,7 +66,7 @@ class ImageComparatorApp:
         self.results = []
 
     def run(self):
-        print("=== Binary Image Comparison Tool (Python version) ===")
+        print("=== Binary Image Comparison Tool (Detailed mode) ===")
         if not os.path.exists(self.GOLDEN_DIR):
             print(f"Error: '{self.GOLDEN_DIR}' directory not found.")
             self.wait_for_any_key()
@@ -53,7 +83,7 @@ class ImageComparatorApp:
             golden_path = os.path.join(self.GOLDEN_DIR, filename)
             target_path = os.path.join(".", filename)
 
-            print(f"Comparing {filename:30s}", end="")
+            print(f"Comparing {filename:30s} ", end="", flush=True)
 
             if os.path.exists(target_path):
                 result = BinaryComparator.compare(golden_path, target_path)
@@ -61,7 +91,8 @@ class ImageComparatorApp:
                     print("[MATCH]")
                     self.results.append({"file": filename, "status": "MATCH"})
                 else:
-                    print(f"[MISMATCH] ({result['reason']})")
+                    print(f"[MISMATCH]")
+                    print(f"  └─ Reason: {result['reason']}")
                     self.results.append({"file": filename, "status": "MISMATCH"})
             else:
                 print("[SKIP] (Not found)")
@@ -83,7 +114,6 @@ class ImageComparatorApp:
         sys.exit(1 if mismatch_count > 0 else 0)
 
     def wait_for_any_key(self):
-        """Any Keyで終了するための待機処理"""
         print("Press any key to exit...")
         if msvcrt:
             msvcrt.getch()
